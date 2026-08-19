@@ -12,6 +12,10 @@
 import Cocoa
 import Kit
 
+// defined here and not in main.swift: globals in a file named main.swift are compiled as sequentially-initialized
+// top-level code, and the Disk module reads this constant before that initialization runs (launch crash)
+public let kAllDisksKey = "%all%"
+
 var textWidgetHelp = """
 <h2>Description</h2>
 You can use a combination of any of the variables.
@@ -156,15 +160,19 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
     
     internal func setList(_ list: Disks) {
         DispatchQueue.main.async(execute: {
-            let disks = list.map{ $0.mediaName }
-            if self.button?.itemTitles.count != disks.count {
-                self.button?.removeAllItems()
-            }
+            let disks = [localizedString("All disks")] + list.map{ $0.mediaName }
             if disks != self.button?.itemTitles {
+                // NSPopUpButton removes existing items with the same title on add, so always rebuild from empty to keep the order intact
+                self.button?.removeAllItems()
                 self.button?.addItems(withTitles: disks)
                 self.list = disks
-                if self.selectedDisk != "" {
+                if self.selectedDisk == kAllDisksKey {
+                    self.button?.selectItem(at: 0)
+                } else if self.selectedDisk != "", self.button?.item(withTitle: self.selectedDisk) != nil {
                     self.button?.selectItem(withTitle: self.selectedDisk)
+                } else if let root = list.first(where: { $0.root }) {
+                    // nothing (or a missing disk) is stored: the module falls back to the root drive, reflect that in the UI
+                    self.button?.selectItem(withTitle: root.mediaName)
                 }
             }
         })
@@ -196,9 +204,10 @@ internal class Settings: NSStackView, Settings_v, NSTextFieldDelegate {
     }
     @objc private func handleSelection(_ sender: NSPopUpButton) {
         guard let item = sender.selectedItem else { return }
-        self.selectedDisk = item.title
-        Store.shared.set(key: "\(self.title)_disk", value: item.title)
-        self.selectedDiskHandler(item.title)
+        let value = item.title == localizedString("All disks") ? kAllDisksKey : item.title
+        self.selectedDisk = value
+        Store.shared.set(key: "\(self.title)_disk", value: value)
+        self.selectedDiskHandler(value)
     }
     @objc private func toggleRemovable(_ sender: NSControl) {
         self.removableState = controlState(sender)

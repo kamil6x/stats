@@ -239,7 +239,8 @@ internal class ActivityReader: Reader<Disks> {
                 defer { IOObjectRelease(driver) }
                 var id: UInt64 = 0
                 guard IORegistryEntryGetRegistryEntryID(driver, &id) == KERN_SUCCESS else { continue }
-                
+                d.deviceID = id
+
                 if let value = values[id] {
                     d.activity = value
                     continue

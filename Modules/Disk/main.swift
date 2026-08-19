@@ -64,6 +64,8 @@ public struct drive: Codable {
     
     var activity: stats = stats()
     var smart: smart_t? = nil
+    // registry entry ID of the backing device driver; volumes sharing a device share this id
+    var deviceID: UInt64? = nil
     
     public var percentage: Double {
         let total = self.size
@@ -367,12 +369,33 @@ public class Disk: Module {
             self.previewView.activityCallback(value)
         })
         
-        guard let d = value.first(where: { $0.mediaName == self.selectedDisk }) ?? value.first(where: { $0.root }) else {
-            return
+        let d: drive
+        if self.selectedDisk == kAllDisksKey {
+            let disks = value.array
+            guard !disks.isEmpty else { return }
+            // volumes on the same physical device carry that device's counters (ActivityReader assigns
+            // identical per-device stats to each of them), so count each device once
+            var seenDevices = Set<UInt64>()
+            var aggregated = drive()
+            for disk in disks {
+                if let devID = disk.deviceID, !seenDevices.insert(devID).inserted {
+                    continue
+                }
+                aggregated.activity.read += disk.activity.read
+                aggregated.activity.write += disk.activity.write
+                aggregated.activity.readBytes += disk.activity.readBytes
+                aggregated.activity.writeBytes += disk.activity.writeBytes
+            }
+            d = aggregated
+        } else {
+            guard let disk = value.first(where: { $0.mediaName == self.selectedDisk }) ?? value.first(where: { $0.root }) else {
+                return
+            }
+            d = disk
         }
-        
+
         self.portalView.activityCallback(d)
-        
+
         self.menuBar.widgets.filter{ $0.isActive }.forEach { (w: SWidget) in
             switch w.item {
             case let widget as SpeedWidget: 

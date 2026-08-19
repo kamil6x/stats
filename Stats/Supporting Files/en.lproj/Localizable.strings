@@ -354,6 +354,7 @@
 "Used disk memory" = "%0 of %1 used";
 "Free disk memory" = "%0 of %1 free";
 "Disk to show" = "Disk to show";
+"All disks" = "All disks";
 "Open disk" = "Open disk";
 "Switch view" = "Switch view";
 "Disk utilization threshold" = "Disk utilization threshold";
