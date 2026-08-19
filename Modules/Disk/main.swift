@@ -12,6 +12,8 @@
 import Cocoa
 import Kit
 import WidgetKit
+import IOKit
+import IOKit.storage
 
 public struct stats: Codable {
     var read: Int64 = 0
@@ -373,6 +375,25 @@ public class Disk: Module {
         }
     }
     
+    private func physicalDeviceID(_ parent: io_object_t) -> UInt64? {
+        guard parent != 0 else { return nil }
+        var node = parent
+        IOObjectRetain(node)
+        while IOObjectConformsTo(node, kIOBlockStorageDeviceClass) == 0 {
+            var next: io_registry_entry_t = 0
+            guard IORegistryEntryGetParentEntry(node, kIOServicePlane, &next) == KERN_SUCCESS else {
+                IOObjectRelease(node)
+                return nil
+            }
+            IOObjectRelease(node)
+            node = next
+        }
+        var entryID: UInt64 = 0
+        let resolved = IORegistryEntryGetRegistryEntryID(node, &entryID) == KERN_SUCCESS
+        IOObjectRelease(node)
+        return resolved ? entryID : nil
+    }
+
     private func activityCallback(_ value: Disks) {
         guard self.enabled else { return }
         
@@ -381,12 +402,42 @@ public class Disk: Module {
             self.previewView.activityCallback(value)
         })
         
-        guard let d = value.first(where: { $0.mediaName == self.selectedDisk }) ?? value.first(where: { $0.root }) else {
-            return
+        let d: drive
+        if self.selectedDisk == kAllDisksKey {
+            let disks = value.array
+            guard !disks.isEmpty else { return }
+            // several volumes can report counters of the same physical device (APFS volumes in one
+            // container, partitions of one disk), so keep only the busiest reporter per device
+            var perDevice: [UInt64: stats] = [:]
+            var orphans: [stats] = []
+            for disk in disks {
+                let a = disk.activity
+                if let devID = self.physicalDeviceID(disk.parent) {
+                    if let current = perDevice[devID], current.read + current.write >= a.read + a.write {
+                        continue
+                    }
+                    perDevice[devID] = a
+                } else {
+                    orphans.append(a)
+                }
+            }
+            var aggregated = drive()
+            for a in Array(perDevice.values) + orphans {
+                aggregated.activity.read += a.read
+                aggregated.activity.write += a.write
+                aggregated.activity.readBytes += a.readBytes
+                aggregated.activity.writeBytes += a.writeBytes
+            }
+            d = aggregated
+        } else {
+            guard let disk = value.first(where: { $0.mediaName == self.selectedDisk }) ?? value.first(where: { $0.root }) else {
+                return
+            }
+            d = disk
         }
-        
+
         self.portalView.activityCallback(d)
-        
+
         self.menuBar.widgets.filter{ $0.isActive }.forEach { (w: SWidget) in
             switch w.item {
             case let widget as SpeedWidget: 
