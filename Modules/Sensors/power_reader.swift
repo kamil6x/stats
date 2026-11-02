@@ -94,7 +94,9 @@ public class PowerReader: Reader<PowerSnapshot> {
         // path is provably dead but the machine is busy, switch the power rails to a single
         // long-lived `macmon pipe` child. One process, one JSON line per second - it structurally
         // cannot pile up the way Mx Power Gadget's per-second powermetrics spawns did.
-        if !self.macmon.active && self.tick > 5 && snapshot.cpuPower == 0 && (snapshot.cpuUtilization ?? 0) > 0.1 {
+        // an exact 0 W CPU while the clusters are reporting frequencies is physically impossible -
+        // it means the native counters are dead (macOS 27), regardless of how idle the machine is
+        if !self.macmon.active && self.tick > 5 && snapshot.cpuPower == 0 && !snapshot.clusters.isEmpty {
             self.deadEnergyTicks += 1
             if self.deadEnergyTicks >= 5 {
                 self.macmon.start()
