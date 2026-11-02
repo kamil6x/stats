@@ -61,7 +61,7 @@ internal class PowerPopup: PopupWrapper {
 
     public init() {
         self.header = PowerHeaderView(width: popupWidth)
-        self.powerPanel = PowerPanelView(title: "Power", unit: "W", accent: PowerColors.cpu, scale: .auto(floor: 5, steps: [5, 10, 20, 50, 100, 200, 300]))
+        self.powerPanel = PowerPanelView(title: "Power", unit: "W", accent: PowerColors.cpu, scale: .auto(floor: 10, steps: []))
         self.frequencyPanel = PowerPanelView(title: "Frequency", unit: "GHz", accent: PowerColors.eCluster, scale: .fixed(1))
         self.temperaturePanel = PowerPanelView(title: "Temperature", unit: "°C", accent: PowerColors.tempAvg, scale: .fixedRange(20, 110))
         self.utilizationPanel = PowerPanelView(title: "Utilization", unit: "%", accent: PowerColors.gpu, scale: .fixedRange(0, 100))
@@ -327,9 +327,12 @@ internal class PowerPanelView: NSStackView {
         switch self.scale {
         case .fixedRange(_, let top): return top
         case .fixed(let top): return top
-        case .auto(let floor, let steps):
+        case .auto(let floor, _):
+            // tight MxPG-style scale: ~1.2x the visible 120 s max, rounded up to a clean step
             let peak = self.series.flatMap { $0.values.compactMap { $0 } }.max() ?? 0
-            return steps.first(where: { $0 >= peak * 1.11 }) ?? max(steps.last ?? floor, peak)
+            let target = max(peak * 1.2, floor)
+            let step: Double = target <= 50 ? 5 : 25
+            return (target / step).rounded(.up) * step
         }
     }
 
