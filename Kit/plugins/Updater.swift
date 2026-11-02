@@ -71,6 +71,10 @@ public class Updater {
     }
     
     public func check(force: Bool = false, completion: @escaping (_ result: version_s?, _ error: Error?) -> Void) {
+        // fork build: ad-hoc signed and carries local patches - an upstream release must never replace it,
+        // so self-update always reports the running version as the newest and never downloads
+        completion(version_s(current: self.currentVersion, latest: self.currentVersion, newest: false, url: ""), nil)
+        return
         if !isConnectedToNetwork() {
             completion(nil, "No internet connection")
             return
