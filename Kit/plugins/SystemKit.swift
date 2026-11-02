@@ -561,7 +561,10 @@ public class SystemKit {
     private func getDiskInfo() -> [disk_s]? {
         var bootableDisks: [disk_s] = []
         
-        guard let output = process(path: "/usr/sbin/diskutil", arguments: ["list", "-plist"]) else {
+        // diskutil can hang for minutes when diskarbitrationd is busy (VM hosts); this runs inside
+        // SystemKit's one-time init ON THE MAIN THREAD, so an unbounded read wedges the whole app
+        // at launch before any module mounts. Bounded read: on timeout we just skip bootable-disk info.
+        guard let output = process(path: "/usr/sbin/diskutil", arguments: ["list", "-plist"], timeout: 10) else {
             return nil
         }
         
