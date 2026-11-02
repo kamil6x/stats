@@ -61,7 +61,8 @@ public enum ModuleType: Int {
     case bluetooth
     case clock
     case remote
-    
+    case power
+
     case combined
     
     public var stringValue: String {
@@ -76,6 +77,7 @@ public enum ModuleType: Int {
         case .bluetooth: return "Bluetooth"
         case .clock: return "Clock"
         case .remote: return "Remote"
+        case .power: return "Power"
         case .combined: return ""
         }
     }

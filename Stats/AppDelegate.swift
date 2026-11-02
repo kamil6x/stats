@@ -29,6 +29,7 @@ var modules: [Module] = [
     RAM(),
     Disk(),
     Sensors(),
+    Power(),
     Network(),
     Battery(),
     Bluetooth(),

@@ -219,6 +219,10 @@
 		9AE29AF6249A52B00071B02D /* config.plist in Resources */ = {isa = PBXBuildFile; fileRef = 9AE29AF4249A52870071B02D /* config.plist */; };
 		9AE29AFB249A53DC0071B02D /* readers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE29AF9249A53780071B02D /* readers.swift */; };
 		9AE29AFC249A53DC0071B02D /* values.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE29AF7249A53420071B02D /* values.swift */; };
+		7A11FA570000000000000002 /* power_main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11FA570000000000000001 /* power_main.swift */; };
+		7A11FA570000000000000004 /* power_reader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11FA570000000000000003 /* power_reader.swift */; };
+		7A11FA570000000000000006 /* power_popup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11FA570000000000000005 /* power_popup.swift */; };
+		7A11FA570000000000000008 /* power-config.plist in Resources */ = {isa = PBXBuildFile; fileRef = 7A11FA570000000000000007 /* power-config.plist */; };
 		9AEBBE4D28D773430082A6A1 /* Dot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEBBE4C28D773430082A6A1 /* Dot.swift */; };
 		9AF9EE0924648751005D2270 /* Disk.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AF9EE0224648751005D2270 /* Disk.framework */; };
 		9AF9EE0A24648751005D2270 /* Disk.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9AF9EE0224648751005D2270 /* Disk.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -771,6 +775,10 @@
 		9AE29AF1249A50CD0071B02D /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = main.swift; path = Modules/Sensors/main.swift; sourceTree = SOURCE_ROOT; };
 		9AE29AF4249A52870071B02D /* config.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = config.plist; path = Modules/Sensors/config.plist; sourceTree = SOURCE_ROOT; };
 		9AE29AF7249A53420071B02D /* values.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = values.swift; path = Modules/Sensors/values.swift; sourceTree = SOURCE_ROOT; };
+		7A11FA570000000000000001 /* power_main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = power_main.swift; path = Modules/Sensors/power_main.swift; sourceTree = SOURCE_ROOT; };
+		7A11FA570000000000000003 /* power_reader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = power_reader.swift; path = Modules/Sensors/power_reader.swift; sourceTree = SOURCE_ROOT; };
+		7A11FA570000000000000005 /* power_popup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = power_popup.swift; path = Modules/Sensors/power_popup.swift; sourceTree = SOURCE_ROOT; };
+		7A11FA570000000000000007 /* power-config.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "power-config.plist"; path = "Modules/Sensors/power-config.plist"; sourceTree = SOURCE_ROOT; };
 		9AE29AF9249A53780071B02D /* readers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = readers.swift; path = Modules/Sensors/readers.swift; sourceTree = SOURCE_ROOT; };
 		9AEBBE4C28D773430082A6A1 /* Dot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dot.swift; sourceTree = "<group>"; };
 		9AF9EE0224648751005D2270 /* Disk.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Disk.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1378,6 +1386,10 @@
 				5CA518372B543FE600EBCCC4 /* portal.swift */,
 				9A58DE9F24B363F300716A9F /* settings.swift */,
 				9AE29AF7249A53420071B02D /* values.swift */,
+				7A11FA570000000000000001 /* power_main.swift */,
+				7A11FA570000000000000003 /* power_reader.swift */,
+				7A11FA570000000000000005 /* power_popup.swift */,
+				7A11FA570000000000000007 /* power-config.plist */,
 				5CF2211A2B1F8CEF006C583F /* notifications.swift */,
 				9AE29AEC249A50960071B02D /* Info.plist */,
 				9AE29AF4249A52870071B02D /* config.plist */,
@@ -2120,6 +2132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9AE29AF6249A52B00071B02D /* config.plist in Resources */,
+				7A11FA570000000000000008 /* power-config.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2430,6 +2443,9 @@
 				9AB6D03926447CAA003215A5 /* reader.m in Sources */,
 				9AE29AFB249A53DC0071B02D /* readers.swift in Sources */,
 				9AE29AFC249A53DC0071B02D /* values.swift in Sources */,
+				7A11FA570000000000000002 /* power_main.swift in Sources */,
+				7A11FA570000000000000004 /* power_reader.swift in Sources */,
+				7A11FA570000000000000006 /* power_popup.swift in Sources */,
 				9A58DE9E24B363D800716A9F /* popup.swift in Sources */,
 				9AE29AF3249A51D70071B02D /* main.swift in Sources */,
 				9A58DEA024B363F300716A9F /* settings.swift in Sources */,
