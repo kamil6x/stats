@@ -349,8 +349,18 @@ internal class PowerPanelView: NSStackView {
         case .fixedRange(_, let top): return top
         case .fixed(let top): return top
         case .auto(let floor, _):
-            // tight MxPG-style scale: ~1.2x the visible 120 s max, rounded up to a clean step
-            let peak = self.series.flatMap { $0.values.compactMap { $0 } }.max() ?? 0
+            // tight MxPG-style scale: ~1.2x the visible 120 s max, rounded up to a clean step.
+            // single-sample transients (launch bursts) above 3x the window median are excluded
+            // from the scale - they draw clipped at the top instead of flattening everything else
+            // filter outliers per series: a quiet series (ANE at 0) must not drag the median down
+            var peak: Double = 0
+            for s in self.series {
+                let values = s.values.compactMap { $0 }.sorted()
+                guard !values.isEmpty else { continue }
+                let median = values[values.count / 2]
+                let seriesPeak = values.last { median <= 0.5 || $0 <= median * 3 } ?? values.last ?? 0
+                peak = max(peak, seriesPeak)
+            }
             let target = max(peak * 1.2, floor)
             let step: Double = target <= 50 ? 5 : 25
             return (target / step).rounded(.up) * step

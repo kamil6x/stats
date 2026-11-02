@@ -74,6 +74,11 @@ public class PowerReader: Reader<PowerSnapshot> {
         self.tick += 1
         var snapshot = PowerSnapshot()
         
+        if self.tick <= 2 {
+            // warm-up: subscriptions and counters settle during the first ticks
+            self.callback(PowerSnapshot())
+            return
+        }
         if let macmon = self.macmon.latest() {
             snapshot.cpuPower = macmon.cpu
             snapshot.gpuPower = macmon.gpu
@@ -143,7 +148,7 @@ public class PowerReader: Reader<PowerSnapshot> {
         let now = Date().timeIntervalSince1970
         defer { self.prev = (sample, now) }
 
-        guard let prev = self.prev,
+        guard let prev = self.prev, now - prev.time >= 0.5,
               let diffCF = IOReportCreateSamplesDelta(prev.samples, sample, nil) else {
             return nil
         }
@@ -156,7 +161,7 @@ public class PowerReader: Reader<PowerSnapshot> {
             samples.append(unsafeBitCast(CFArrayGetValueAtIndex(items, i), to: CFDictionary.self))
         }
 
-        return (samples, max(now - prev.time, 0.1))
+        return (samples, now - prev.time)
     }
 
     private func parsePower(_ samples: [CFDictionary], elapsed: TimeInterval, into snapshot: inout PowerSnapshot) {
