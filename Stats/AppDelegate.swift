@@ -70,6 +70,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             renderPowerPopup(prefix: CommandLine.arguments[idx + 1])
             exit(0)
         }
+        // same, but sampling the machine's REAL readers for N seconds first
+        if let idx = CommandLine.arguments.firstIndex(of: "--render-power-popup-live"), CommandLine.arguments.indices.contains(idx + 1) {
+            _ = NSApplication.shared
+            let seconds = CommandLine.arguments.indices.contains(idx + 2) ? Int(CommandLine.arguments[idx + 2]) ?? 90 : 90
+            renderPowerPopupLive(prefix: CommandLine.arguments[idx + 1], seconds: seconds)
+            exit(0)
+        }
 
         let launchStart = Date()
         let app = NSApplication.shared

@@ -368,6 +368,7 @@ internal class MacmonPipe {
     private var process: Process? = nil
     private var lastStart: Date = .distantPast
     private var value: (cpu: Double, gpu: Double, ane: Double, at: Date)? = nil
+    private var lastGood: (cpu: Double, gpu: Double, ane: Double, at: Date)? = nil
     private var started: Bool = false
     var active: Bool { self.queue.sync { self.started } }
 
@@ -419,7 +420,20 @@ internal class MacmonPipe {
                 let cpu = json["cpu_power"] as? Double ?? 0
                 let gpu = json["gpu_power"] as? Double ?? 0
                 let ane = json["ane_power"] as? Double ?? 0
-                self.queue.async { self.value = (cpu, gpu, ane, Date()) }
+                self.queue.async {
+                    let now = Date()
+                    // macmon <0.9 on macOS 27 emits cpu_power=0 on most samples (measured on the
+                    // M3 Ultra: one real reading in four). An exact 0 right after a busy reading
+                    // is that artifact, not real idle - hold the last good value instead.
+                    if cpu == 0, let lastGood = self.lastGood, lastGood.cpu > 1, now.timeIntervalSince(lastGood.at) < 15 {
+                        self.value = (lastGood.cpu, lastGood.gpu, lastGood.ane, now)
+                        return
+                    }
+                    self.value = (cpu, gpu, ane, now)
+                    if cpu > 0 {
+                        self.lastGood = (cpu, gpu, ane, now)
+                    }
+                }
             }
         }
         process.terminationHandler = { _ in

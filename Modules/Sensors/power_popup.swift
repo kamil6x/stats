@@ -214,6 +214,7 @@ internal enum PowerPanelScale {
 
 internal class PowerPanelView: NSStackView {
     internal var uiActive: Bool = false
+    internal var collapsed: Bool = false
     internal var scale: PowerPanelScale
     internal private(set) var panelHeight: CGFloat = 120
 
@@ -302,14 +303,34 @@ internal class PowerPanelView: NSStackView {
         self.format = format
         for (i, value) in newValues.enumerated() {
             self.series[i].push(value.value)
-            if self.uiActive {
+            if self.uiActive && !self.collapsed {
                 self.chips[value.label]?.set(value: value.value.map(format) ?? "—")
+            }
+        }
+        if self.uiActive && self.collapsed {
+            let groups = Dictionary(grouping: newValues, by: { String($0.label.prefix(1)) })
+            for (prefix, members) in groups {
+                let present = members.compactMap { $0.value }
+                let avg = present.isEmpty ? nil : present.reduce(0, +) / Double(present.count)
+                let parked = members.filter { $0.value == 0 }.count
+                var text = avg.map(format) ?? "—"
+                if parked > 0 { text += " ·\(parked)⏸" }
+                self.chips["summary-\(prefix)"]?.set(value: text)
             }
         }
         self.chart.series = self.series
         self.chart.axisMax = self.axisMax()
         self.chart.axisMin = self.axisMin()
         self.chart.axisFormat = self.format
+    }
+
+    private func summaryDefinitions() -> [(key: String, label: String, color: NSColor)] {
+        var result: [(String, String, NSColor)] = []
+        let groups = Dictionary(grouping: self.series, by: { String($0.label.prefix(1)) })
+        for (prefix, members) in groups.sorted(by: { $0.key < $1.key }) {
+            result.append(("summary-\(prefix)", "\(prefix) ×\(members.count)", members.first?.color ?? .labelColor))
+        }
+        return result
     }
 
     func setFault(_ key: String, _ faulted: Bool) {
@@ -347,28 +368,29 @@ internal class PowerPanelView: NSStackView {
         self.chipsRows = []
         self.chips = [:]
 
-        var row: NSStackView? = nil
-        for (i, s) in self.series.enumerated() {
-            if i % 5 == 0 {
-                let newRow = NSStackView(frame: .zero)
-                newRow.orientation = .horizontal
-                newRow.alignment = .top
-                newRow.distribution = .fillEqually
-                newRow.spacing = 6
-                newRow.widthAnchor.constraint(equalToConstant: cardContentWidth).isActive = true
-                newRow.heightAnchor.constraint(equalToConstant: 30).isActive = true
-                self.addArrangedSubview(newRow)
-                self.chipsRows.append(newRow)
-                row = newRow
-            }
-            let chip = PowerChipView(label: s.label, color: s.color)
-            self.chips[s.key] = chip
-            row?.addArrangedSubview(chip)
-        }
-        if let last = self.chipsRows.last, self.series.count % 5 != 0 {
-            for _ in 0..<(5 - self.series.count % 5) where self.series.count > 4 {
-                last.addArrangedSubview(NSView())
-            }
+        // every chip shares ONE row, sized evenly to the card width; below a readable minimum
+        // the panel collapses to per-type summary chips (E avg / P avg + parked count) - per-cluster
+        // detail stays visible as the chart lines (the reason this card exists, ROD-4)
+        let minChipWidth: CGFloat = 46
+        let fits = CGFloat(self.series.count) * minChipWidth + CGFloat(max(self.series.count - 1, 0)) * 6 <= cardContentWidth
+        self.collapsed = !fits
+        let chipKeys: [(key: String, label: String, color: NSColor)] = self.collapsed
+            ? self.summaryDefinitions()
+            : self.series.map { ($0.key, $0.label, $0.color) }
+
+        let row = NSStackView(frame: .zero)
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.distribution = .fillEqually
+        row.spacing = 6
+        row.widthAnchor.constraint(equalToConstant: cardContentWidth).isActive = true
+        row.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        self.addArrangedSubview(row)
+        self.chipsRows.append(row)
+        for definition in chipKeys {
+            let chip = PowerChipView(label: definition.label, color: definition.color)
+            self.chips[definition.key] = chip
+            row.addArrangedSubview(chip)
         }
         self.addArrangedSubview(self.chart)
 
@@ -561,6 +583,25 @@ internal class PowerChartView: NSView {
 
 // MARK: - offscreen render harness
 
+// Renders the popup from the REAL PowerReader after `seconds` of live sampling.
+public func renderPowerPopupLive(prefix: String, seconds: Int) {
+    let popup = PowerPopup()
+    popup.forceUI = true
+
+    let reader = PowerReader(.power) { snapshot in
+        if let snapshot {
+            DispatchQueue.main.async { popup.feedSynchronously(snapshot) }
+        }
+    }
+    reader.read()
+    let timer = Timer(timeInterval: 1, repeats: true) { _ in reader.read() }
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.run(until: Date().addingTimeInterval(TimeInterval(seconds)))
+    timer.invalidate()
+
+    writePopupRenders(popup, prefix: prefix)
+}
+
 // Draws the popup with synthetic M3-Ultra-shaped data into PNGs, so the design can be reviewed
 // without launching the app (no status items, no TCC).
 public func renderPowerPopup(prefix: String) {
@@ -592,6 +633,13 @@ public func renderPowerPopup(prefix: String) {
         snapshots.append(s)
     }
 
+    for s in snapshots {
+        popup.feedSynchronously(s)
+    }
+    writePopupRenders(popup, prefix: prefix)
+}
+
+private func writePopupRenders(_ popup: PowerPopup, prefix: String) {
     let container = NSView(frame: NSRect(x: 0, y: 0, width: popupWidth + 16, height: 800))
     container.wantsLayer = true
     container.addSubview(popup)
@@ -599,10 +647,6 @@ public func renderPowerPopup(prefix: String) {
 
     let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = container
-
-    for s in snapshots {
-        popup.feedSynchronously(s)
-    }
 
     for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
         window.appearance = NSAppearance(named: appearance)
