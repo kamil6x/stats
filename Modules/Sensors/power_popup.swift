@@ -3,14 +3,19 @@
 //  Sensors
 //
 //  Popup for the Power module (fork addition, INFRA-45): an Intel-Power-Gadget-style stack of
-//  four time-series panels (power, frequency, temperature, utilization), per the Claude Design
-//  spec of 2026-11-02 (research-ui/claude-design-stats-power-2026-11-02.txt).
+//  four card panels (power, frequency, temperature, utilization), per the Claude Design spec
+//  of 2026-11-02 and the Mx-Power-Gadget-reference critique round (research-ui/).
 //
 
 import Cocoa
 import Kit
 
 private let popupWidth: CGFloat = 360
+private let cardWidth: CGFloat = 344
+private let cardInset: CGFloat = 10
+private let cardContentWidth: CGFloat = cardWidth - cardInset * 2
+private let chartHeight: CGFloat = 72
+private let axisGutter: CGFloat = 24
 private let historyLength: Int = 120
 
 // one color per subsystem, consistent across every panel (dynamic for Increase Contrast)
@@ -44,31 +49,30 @@ internal struct PowerSeries {
 }
 
 internal class PowerPopup: PopupWrapper {
-    private var header: PowerHeaderView? = nil
-    private var powerPanel: PowerPanelView
-    private var frequencyPanel: PowerPanelView
-    private var temperaturePanel: PowerPanelView
-    private var utilizationPanel: PowerPanelView
+    private let header: PowerHeaderView
+    private let powerPanel: PowerPanelView
+    private let frequencyPanel: PowerPanelView
+    private let temperaturePanel: PowerPanelView
+    private let utilizationPanel: PowerPanelView
 
     // parked-P fault detection: red only when a P cluster is at 0 MHz while CPU use >50% for >=3 s
     private var faultCounters: [String: Int] = [:]
+    internal var forceUI = false
 
     public init() {
-        self.powerPanel = PowerPanelView(title: "POWER", unit: "W", scale: .auto(floor: 5, steps: [5, 10, 20, 50, 100, 200, 300]))
-        self.frequencyPanel = PowerPanelView(title: "FREQUENCY", unit: "GHz", scale: .fixed(0))
-        self.temperaturePanel = PowerPanelView(title: "TEMPERATURE", unit: "°C", scale: .fixedRange(20, 110))
-        self.utilizationPanel = PowerPanelView(title: "UTILIZATION", unit: "%", scale: .fixedRange(0, 100))
+        self.header = PowerHeaderView(width: popupWidth)
+        self.powerPanel = PowerPanelView(title: "Power", unit: "W", accent: PowerColors.cpu, scale: .auto(floor: 5, steps: [5, 10, 20, 50, 100, 200, 300]))
+        self.frequencyPanel = PowerPanelView(title: "Frequency", unit: "GHz", accent: PowerColors.eCluster, scale: .fixed(1))
+        self.temperaturePanel = PowerPanelView(title: "Temperature", unit: "°C", accent: PowerColors.tempAvg, scale: .fixedRange(20, 110))
+        self.utilizationPanel = PowerPanelView(title: "Utilization", unit: "%", accent: PowerColors.gpu, scale: .fixedRange(0, 100))
 
         super.init(.power, frame: NSRect(x: 0, y: 0, width: popupWidth, height: 560))
 
         self.orientation = .vertical
-        self.alignment = .leading
+        self.alignment = .centerX
         self.spacing = 8
-        self.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
-        let header = PowerHeaderView(width: popupWidth)
-        self.header = header
-        self.addArrangedSubview(header)
+        self.addArrangedSubview(self.header)
         self.addArrangedSubview(self.powerPanel)
         self.addArrangedSubview(self.frequencyPanel)
         self.addArrangedSubview(self.temperaturePanel)
@@ -86,33 +90,35 @@ internal class PowerPopup: PopupWrapper {
 
     private func recalculateHeight() {
         let panels = [self.powerPanel, self.frequencyPanel, self.temperaturePanel, self.utilizationPanel]
-        let height = 40 + panels.reduce(0) { $0 + $1.panelHeight } + CGFloat(panels.count) * self.spacing
+        let height = self.header.frame.height + panels.reduce(0) { $0 + $1.panelHeight } + CGFloat(panels.count) * self.spacing
         if self.frame.height != height {
             self.setFrameSize(NSSize(width: popupWidth, height: height))
             self.sizeCallback?(self.frame.size)
         }
     }
 
+    internal func feedSynchronously(_ snapshot: PowerSnapshot) {
+        self.store(snapshot)
+        [self.powerPanel, self.frequencyPanel, self.temperaturePanel, self.utilizationPanel].forEach { $0.refresh() }
+        self.recalculateHeight()
+    }
+
     internal func callback(_ snapshot: PowerSnapshot) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.window?.isVisible ?? false else {
-                self?.store(snapshot)
-                return
-            }
+            guard let self else { return }
             self.store(snapshot)
-            self.powerPanel.refresh()
-            self.frequencyPanel.refresh()
-            self.temperaturePanel.refresh()
-            self.utilizationPanel.refresh()
+            guard self.window?.isVisible ?? false else { return }
+            [self.powerPanel, self.frequencyPanel, self.temperaturePanel, self.utilizationPanel].forEach { $0.refresh() }
             self.recalculateHeight()
         }
     }
 
     private func store(_ snapshot: PowerSnapshot) {
-        let visible = self.window?.isVisible ?? false
+        let visible = self.forceUI || (self.window?.isVisible ?? false)
         for panel in [self.powerPanel, self.frequencyPanel, self.temperaturePanel, self.utilizationPanel] {
             panel.uiActive = visible
         }
+
         self.powerPanel.update([
             ("PKG", snapshot.packagePower, PowerColors.pkg, true, false),
             ("CPU", snapshot.cpuPower, PowerColors.cpu, false, false),
@@ -151,30 +157,30 @@ internal class PowerPopup: PopupWrapper {
             ("GPU", snapshot.gpuUtilization.map { $0 * 100 }, PowerColors.gpu, false, false)
         ], format: { String(format: "%.0f", $0) })
 
-        self.header?.update()
+        self.header.update()
     }
 }
 
 // MARK: - header
 
 private class PowerHeaderView: NSStackView {
-    private let titleField = NSTextField(labelWithString: "")
-    private let subtitleField = NSTextField(labelWithString: "")
+    private let titleField = NSTextField(labelWithString: " ")
+    private let subtitleField = NSTextField(labelWithString: " ")
     private var filled = false
 
     init(width: CGFloat) {
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 40))
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 44))
         self.orientation = .vertical
         self.alignment = .leading
-        self.spacing = 2
-        self.edgeInsets = NSEdgeInsets(top: 4, left: 2, bottom: 0, right: 2)
+        self.spacing = 1
+        self.edgeInsets = NSEdgeInsets(top: 6, left: 4, bottom: 0, right: 4)
 
-        self.titleField.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        self.titleField.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
         self.subtitleField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         self.subtitleField.textColor = .secondaryLabelColor
         self.addArrangedSubview(self.titleField)
         self.addArrangedSubview(self.subtitleField)
-        self.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        self.heightAnchor.constraint(equalToConstant: 44).isActive = true
         self.widthAnchor.constraint(equalToConstant: width).isActive = true
     }
 
@@ -194,11 +200,11 @@ private class PowerHeaderView: NSStackView {
             parts.append("\(gpu) GPU cores")
         }
         self.subtitleField.stringValue = parts.joined(separator: " · ")
-        self.filled = !self.titleField.stringValue.isEmpty
+        self.filled = !self.titleField.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
     }
 }
 
-// MARK: - panel (title row + chips + chart)
+// MARK: - panel card (title row + chips + chart)
 
 internal enum PowerPanelScale {
     case auto(floor: Double, steps: [Double])
@@ -209,10 +215,12 @@ internal enum PowerPanelScale {
 internal class PowerPanelView: NSStackView {
     internal var uiActive: Bool = false
     internal var scale: PowerPanelScale
+    internal private(set) var panelHeight: CGFloat = 120
+
     private let unit: String
+    private let accent: NSColor
     private let titleField = NSTextField(labelWithString: "")
-    private let axisField = NSTextField(labelWithString: "")
-    internal private(set) var panelHeight: CGFloat = 110
+    private let unitField = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint? = nil
     private var chipsRows: [NSStackView] = []
     private var chips: [String: PowerChipView] = [:]
@@ -220,46 +228,76 @@ internal class PowerPanelView: NSStackView {
     private var series: [PowerSeries] = []
     private var format: (Double) -> String
 
-    init(title: String, unit: String, scale: PowerPanelScale) {
+    init(title: String, unit: String, accent: NSColor, scale: PowerPanelScale) {
         self.unit = unit
+        self.accent = accent
         self.scale = scale
-        self.chart = PowerChartView(frame: NSRect(x: 0, y: 0, width: popupWidth - 4, height: 72))
+        self.chart = PowerChartView(frame: NSRect(x: 0, y: 0, width: cardContentWidth, height: chartHeight))
         self.format = { String(format: "%.1f", $0) }
 
-        super.init(frame: NSRect(x: 0, y: 0, width: popupWidth, height: 110))
+        super.init(frame: NSRect(x: 0, y: 0, width: popupWidth, height: 120))
         self.orientation = .vertical
         self.alignment = .leading
-        self.spacing = 4
-        self.widthAnchor.constraint(equalToConstant: popupWidth).isActive = true
+        self.spacing = 6
+        self.edgeInsets = NSEdgeInsets(top: 8, left: cardInset, bottom: 10, right: cardInset)
+        self.wantsLayer = true
+        self.layer?.cornerRadius = 8
+        self.layer?.borderWidth = 0.5
+        self.widthAnchor.constraint(equalToConstant: cardWidth).isActive = true
 
-        let titleRow = NSStackView(frame: NSRect(x: 0, y: 0, width: popupWidth, height: 16))
+        let titleRow = NSStackView(frame: .zero)
         titleRow.orientation = .horizontal
         titleRow.distribution = .fill
-        self.titleField.stringValue = "\(title)  \(unit)"
-        self.titleField.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        self.titleField.textColor = .secondaryLabelColor
-        self.axisField.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
-        self.axisField.textColor = .tertiaryLabelColor
+        self.titleField.stringValue = title
+        self.titleField.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        self.titleField.textColor = accent
+        self.unitField.stringValue = unit
+        self.unitField.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        self.unitField.textColor = .secondaryLabelColor
         titleRow.addArrangedSubview(self.titleField)
         titleRow.addArrangedSubview(NSView())
-        titleRow.addArrangedSubview(self.axisField)
+        titleRow.addArrangedSubview(self.unitField)
         titleRow.heightAnchor.constraint(equalToConstant: 16).isActive = true
         self.addArrangedSubview(titleRow)
-        titleRow.widthAnchor.constraint(equalTo: self.widthAnchor).isActive = true
+        titleRow.widthAnchor.constraint(equalToConstant: cardContentWidth).isActive = true
 
-        self.chart.heightAnchor.constraint(equalToConstant: 72).isActive = true
-        self.chart.widthAnchor.constraint(equalToConstant: popupWidth - 4).isActive = true
+        self.chart.heightAnchor.constraint(equalToConstant: chartHeight).isActive = true
+        self.chart.widthAnchor.constraint(equalToConstant: cardContentWidth).isActive = true
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func applyCardStyle() {
+        self.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let dark = self.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            self.layer?.backgroundColor = dark
+                ? NSColor.white.withAlphaComponent(0.06).cgColor
+                : NSColor.controlBackgroundColor.withAlphaComponent(0.85).cgColor
+            self.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        self.applyCardStyle()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        self.applyCardStyle()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.applyCardStyle()
+    }
+
     func update(_ newValues: [(label: String, value: Double?, color: NSColor, filled: Bool, dashedWhenZero: Bool)], format: @escaping (Double) -> String) {
-        // create series + chips lazily on the first tick that defines them
         if self.series.count != newValues.count {
             self.series = newValues.map { PowerSeries(key: $0.label, label: $0.label, color: $0.color, filled: $0.filled, dashedWhenZero: $0.dashedWhenZero) }
-            self.rebuildChips(format: format)
+            self.rebuildChips()
         }
         self.format = format
         for (i, value) in newValues.enumerated() {
@@ -269,11 +307,9 @@ internal class PowerPanelView: NSStackView {
             }
         }
         self.chart.series = self.series
-        if self.uiActive {
-            self.axisField.stringValue = "\(self.format(self.axisMax())) \(self.unit)"
-        }
         self.chart.axisMax = self.axisMax()
         self.chart.axisMin = self.axisMin()
+        self.chart.axisFormat = self.format
     }
 
     func setFault(_ key: String, _ faulted: Bool) {
@@ -302,7 +338,7 @@ internal class PowerPanelView: NSStackView {
         return 0
     }
 
-    private func rebuildChips(format: @escaping (Double) -> String) {
+    private func rebuildChips() {
         self.chipsRows.forEach { $0.removeFromSuperview() }
         self.chart.removeFromSuperview()
         self.chipsRows = []
@@ -311,21 +347,31 @@ internal class PowerPanelView: NSStackView {
         var row: NSStackView? = nil
         for (i, s) in self.series.enumerated() {
             if i % 5 == 0 {
-                row = NSStackView(frame: NSRect(x: 0, y: 0, width: popupWidth, height: 20))
-                row?.orientation = .horizontal
-                row?.spacing = 4
-                row?.heightAnchor.constraint(equalToConstant: 20).isActive = true
-                self.addArrangedSubview(row!)
-                self.chipsRows.append(row!)
+                let newRow = NSStackView(frame: .zero)
+                newRow.orientation = .horizontal
+                newRow.alignment = .top
+                newRow.distribution = .fillEqually
+                newRow.spacing = 6
+                newRow.widthAnchor.constraint(equalToConstant: cardContentWidth).isActive = true
+                newRow.heightAnchor.constraint(equalToConstant: 30).isActive = true
+                self.addArrangedSubview(newRow)
+                self.chipsRows.append(newRow)
+                row = newRow
             }
             let chip = PowerChipView(label: s.label, color: s.color)
             self.chips[s.key] = chip
             row?.addArrangedSubview(chip)
         }
+        if let last = self.chipsRows.last, self.series.count % 5 != 0 {
+            for _ in 0..<(5 - self.series.count % 5) where self.series.count > 4 {
+                last.addArrangedSubview(NSView())
+            }
+        }
         self.addArrangedSubview(self.chart)
 
         let rows = CGFloat(self.chipsRows.count)
-        self.panelHeight = 16 + 4 + rows * 24 + 72
+        // 8 top + 16 title + 6 gap + rows*(30+6) + chart + 10 bottom
+        self.panelHeight = 8 + 16 + 6 + rows * 36 + chartHeight + 10
         if let constraint = self.heightConstraint {
             constraint.constant = self.panelHeight
         } else {
@@ -335,39 +381,71 @@ internal class PowerPanelView: NSStackView {
     }
 }
 
-// MARK: - chip
+// MARK: - chip (label over value, colored underline under the value)
 
-private class PowerChipView: NSStackView {
-    private let valueField: NSTextField
+private class PowerChipView: NSView {
     private let labelField: NSTextField
-    private let swatch: NSView
+    private let valueField: NSTextField
+    private let underline: NSView
+    private let color: NSColor
 
     init(label: String, color: NSColor) {
-        self.swatch = NSView(frame: NSRect(x: 0, y: 0, width: 3, height: 12))
-        self.swatch.wantsLayer = true
-        self.swatch.layer?.backgroundColor = color.cgColor
-        self.swatch.widthAnchor.constraint(equalToConstant: 3).isActive = true
-        self.swatch.heightAnchor.constraint(equalToConstant: 12).isActive = true
-
+        self.color = color
         self.labelField = NSTextField(labelWithString: label)
-        self.labelField.font = NSFont.systemFont(ofSize: 10)
+        self.labelField.font = NSFont.systemFont(ofSize: 10, weight: .regular)
         self.labelField.textColor = .secondaryLabelColor
 
         self.valueField = NSTextField(labelWithString: "—")
-        self.valueField.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        self.valueField.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         self.valueField.textColor = .labelColor
 
-        super.init(frame: NSRect(x: 0, y: 0, width: 66, height: 20))
-        self.orientation = .horizontal
-        self.spacing = 3
-        self.addArrangedSubview(self.swatch)
-        self.addArrangedSubview(self.labelField)
-        self.addArrangedSubview(self.valueField)
-        self.widthAnchor.constraint(greaterThanOrEqualToConstant: 62).isActive = true
+        self.underline = NSView(frame: .zero)
+        self.underline.wantsLayer = true
+        self.underline.layer?.cornerRadius = 1
+
+        super.init(frame: NSRect(x: 0, y: 0, width: 56, height: 30))
+        self.translatesAutoresizingMaskIntoConstraints = false
+        [self.labelField, self.valueField, self.underline].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            self.addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            self.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            self.heightAnchor.constraint(equalToConstant: 30),
+            self.labelField.topAnchor.constraint(equalTo: self.topAnchor),
+            self.labelField.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.valueField.topAnchor.constraint(equalTo: self.labelField.bottomAnchor),
+            self.valueField.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.valueField.trailingAnchor.constraint(lessThanOrEqualTo: self.trailingAnchor),
+            self.underline.topAnchor.constraint(equalTo: self.valueField.bottomAnchor, constant: 1),
+            self.underline.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.underline.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -6),
+            self.underline.heightAnchor.constraint(equalToConstant: 2)
+        ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        self.underline.layer?.backgroundColor = self.color.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        self.effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.underline.layer?.backgroundColor = self.color.cgColor
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.underline.layer?.backgroundColor = self.color.cgColor
+        }
     }
 
     func set(value: String) {
@@ -384,31 +462,50 @@ private class PowerChipView: NSStackView {
     }
 }
 
-// MARK: - chart (multi-series, ring-buffered, no layout on tick)
+// MARK: - chart (multi-series, dotted grid, right-edge axis labels)
 
 internal class PowerChartView: NSView {
     internal var series: [PowerSeries] = []
     internal var axisMax: Double = 1
     internal var axisMin: Double = 0
+    internal var axisFormat: (Double) -> String = { String(format: "%.0f", $0) }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let bounds = self.bounds
-
-        context.setFillColor(NSColor.textBackgroundColor.withAlphaComponent(0.4).cgColor)
-        context.fill(bounds)
-
-        // hairline at 50%
-        context.setStrokeColor(NSColor.separatorColor.cgColor)
-        context.setLineWidth(0.5)
-        context.move(to: CGPoint(x: 0, y: bounds.height / 2))
-        context.addLine(to: CGPoint(x: bounds.width, y: bounds.height / 2))
-        context.strokePath()
-
         let range = max(self.axisMax - self.axisMin, 0.001)
-        let stepX = bounds.width / CGFloat(historyLength - 1)
-
-        // filled series behind the lines
+        let plotWidth = bounds.width - axisGutter
+        let plotHeight = bounds.height - 2
+        
+        // dotted grid: horizontals at 0/25/50/75/100%, verticals every 20 s
+        context.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.6).cgColor)
+        context.setLineWidth(0.5)
+        context.setLineDash(phase: 0, lengths: [1, 2])
+        for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let y = CGFloat(fraction) * (plotHeight - 2) + 1
+            context.move(to: CGPoint(x: 0, y: y))
+            context.addLine(to: CGPoint(x: plotWidth, y: y))
+        }
+        for i in 1...6 {
+            let x = CGFloat(i) * plotWidth / 6
+            context.move(to: CGPoint(x: x, y: 1))
+            context.addLine(to: CGPoint(x: x, y: plotHeight - 1))
+        }
+        context.strokePath()
+        context.setLineDash(phase: 0, lengths: [])
+        
+        // axis labels in the right gutter at max and mid
+        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.tertiaryLabelColor]
+        for (fraction, value) in [(1.0, self.axisMax), (0.5, self.axisMin + range / 2)] {
+            let text = NSAttributedString(string: self.axisFormat(value), attributes: attributes)
+            let size = text.size()
+            let y = CGFloat(fraction) * (plotHeight - 2) + 1
+            text.draw(at: NSPoint(x: plotWidth + 3, y: min(y - size.height / 2, bounds.height - size.height)))
+        }
+        
+        let stepX = plotWidth / CGFloat(historyLength - 1)
+        
         for s in self.series.sorted(by: { $0.filled && !$1.filled }) {
             guard !s.values.isEmpty else { continue }
             let offset = historyLength - s.values.count
@@ -422,19 +519,19 @@ internal class PowerChartView: NSView {
                     continue
                 }
                 let x = CGFloat(offset + i) * stepX
-                let y = CGFloat((min(max(value, self.axisMin), self.axisMax) - self.axisMin) / range) * (bounds.height - 2) + 1
+                let y = CGFloat((min(max(value, self.axisMin), self.axisMax) - self.axisMin) / range) * (plotHeight - 4) + 1
                 current.append(CGPoint(x: x, y: y))
             }
             if !current.isEmpty { segments.append(current) }
             guard !segments.isEmpty else { continue }
             
             if s.filled {
-                context.setFillColor(s.color.withAlphaComponent(0.18).cgColor)
+                context.setFillColor(s.color.withAlphaComponent(0.12).cgColor)
                 for segment in segments {
                     let fill = CGMutablePath()
                     fill.addLines(between: segment)
-                    fill.addLine(to: CGPoint(x: segment.last!.x, y: 0))
-                    fill.addLine(to: CGPoint(x: segment.first!.x, y: 0))
+                    fill.addLine(to: CGPoint(x: segment.last!.x, y: 1))
+                    fill.addLine(to: CGPoint(x: segment.first!.x, y: 1))
                     fill.closeSubpath()
                     context.addPath(fill)
                 }
@@ -446,7 +543,7 @@ internal class PowerChartView: NSView {
                 path.addLines(between: segment)
             }
             context.setStrokeColor((s.faulted ? NSColor.systemRed : s.color).cgColor)
-            context.setLineWidth(s.filled ? 1.5 : 1)
+            context.setLineWidth(s.filled ? 1.5 : 1.25)
             if s.dashedWhenZero && (s.current ?? 1) == 0 {
                 context.setLineDash(phase: 0, lengths: [3, 3])
             } else {
@@ -455,6 +552,69 @@ internal class PowerChartView: NSView {
             context.addPath(path)
             context.strokePath()
             context.setLineDash(phase: 0, lengths: [])
+        }
+    }
+}
+
+// MARK: - offscreen render harness
+
+// Draws the popup with synthetic M3-Ultra-shaped data into PNGs, so the design can be reviewed
+// without launching the app (no status items, no TCC).
+public func renderPowerPopup(prefix: String) {
+    let popup = PowerPopup()
+    popup.forceUI = true
+
+    var snapshots: [PowerSnapshot] = []
+    for i in 0..<120 {
+        let t = Double(i)
+        var s = PowerSnapshot()
+        let burst = (40..<75).contains(i) ? 1.0 : 0.15
+        s.cpuPower = 8 + 22 * burst + 3 * sin(t / 5)
+        s.gpuPower = 2 + 9 * burst * max(0, sin(t / 9))
+        s.anePower = (55..<70).contains(i) ? 3.5 : 0.1
+        s.packagePower = (s.cpuPower ?? 0) + (s.gpuPower ?? 0) + (s.anePower ?? 0)
+        s.clusters = [
+            PowerCluster(name: "E0", type: .efficiency, frequency: 1400 + 500 * burst + 60 * sin(t / 4)),
+            PowerCluster(name: "E1", type: .efficiency, frequency: 1350 + 480 * burst + 50 * cos(t / 5)),
+            PowerCluster(name: "P0", type: .performance, frequency: 1200 + 2800 * burst + 100 * sin(t / 3)),
+            PowerCluster(name: "P1", type: .performance, frequency: 1100 + 2850 * burst + 90 * cos(t / 4)),
+            PowerCluster(name: "P2", type: .performance, frequency: i > 90 ? 0 : 1150 + 2800 * burst),
+            PowerCluster(name: "P3", type: .performance, frequency: 1180 + 2750 * burst)
+        ]
+        s.cpuTempAvg = 48 + 18 * burst + sin(t / 6)
+        s.cpuTempMax = (s.cpuTempAvg ?? 50) + 6
+        s.gpuTemp = 45 + 10 * burst
+        s.cpuUtilization = 0.12 + 0.75 * burst
+        s.gpuUtilization = 0.05 + 0.5 * burst * max(0, sin(t / 9))
+        snapshots.append(s)
+    }
+
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: popupWidth + 16, height: 800))
+    container.wantsLayer = true
+    container.addSubview(popup)
+    popup.setFrameOrigin(NSPoint(x: 8, y: 8))
+
+    let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = container
+
+    for s in snapshots {
+        popup.feedSynchronously(s)
+    }
+
+    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+        window.appearance = NSAppearance(named: appearance)
+        container.appearance = NSAppearance(named: appearance)
+        container.setFrameSize(NSSize(width: popupWidth + 16, height: popup.frame.height + 16))
+        window.setContentSize(container.frame.size)
+        container.effectiveAppearance.performAsCurrentDrawingAppearance {
+            container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
+        container.layoutSubtreeIfNeeded()
+        container.needsDisplay = true
+        guard let rep = container.bitmapImageRepForCachingDisplay(in: container.bounds) else { continue }
+        container.cacheDisplay(in: container.bounds, to: rep)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: "\(prefix)-\(name).png"))
         }
     }
 }

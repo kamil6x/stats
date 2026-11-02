@@ -62,6 +62,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private var launchStart: Date?
     
     static func main() {
+        // dev harness: render the Power popup offscreen to PNGs and exit, so visual changes can be
+        // verified without launching the app, creating status items, or touching TCC-protected disks.
+        // Usage: Stats --render-power-popup /path/prefix  ->  prefix-light.png + prefix-dark.png
+        if let idx = CommandLine.arguments.firstIndex(of: "--render-power-popup"), CommandLine.arguments.indices.contains(idx + 1) {
+            _ = NSApplication.shared
+            renderPowerPopup(prefix: CommandLine.arguments[idx + 1])
+            exit(0)
+        }
+
         let launchStart = Date()
         let app = NSApplication.shared
         let delegate = AppDelegate()
