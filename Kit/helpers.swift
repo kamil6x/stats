@@ -994,28 +994,10 @@ internal class WidgetLabelView: NSView {
 }
 
 public func process(path: String, arguments: [String]) -> String? {
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: path)
-    task.arguments = arguments
-    
-    let outputPipe = Pipe()
-    defer {
-        outputPipe.fileHandleForReading.closeFile()
-    }
-    task.standardOutput = outputPipe
-    
-    do {
-        try task.run()
-    } catch let error {
-        debug("system_profiler SPMemoryDataType: \(error.localizedDescription)")
-        return nil
-    }
-    
-    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: outputData, encoding: .utf8)
-    guard let output, !output.isEmpty else { return nil }
-    
-    return output
+    // every caller of this overload sits on the app's startup path (SystemKit init on the main
+    // thread); an unbounded pipe read lets one hung diskutil/system_profiler wedge the whole app
+    // before any module mounts, so always delegate to the bounded variant
+    return process(path: path, arguments: arguments, timeout: 15)
 }
 
 public func process(path: String, arguments: [String], environment: [String: String]? = nil, timeout: TimeInterval) -> String? {
